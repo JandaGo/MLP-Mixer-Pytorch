@@ -57,9 +57,10 @@ def setup(args):
     # Prepare model
     config = CONFIGS[args.model_type]
 
-    num_classes = 10
+    num_classes = 5
 
-    model = MlpMixer(config, args.img_size, num_classes=num_classes, patch_size=16, zero_head=True)
+    # model = MlpMixer(config, args.img_size, num_classes=num_classes, patch_size=16, zero_head=True)
+    model = MlpMixer(config, 224, num_classes=num_classes, patch_size=16, zero_head=True)
     model.load_from(np.load(args.pretrained_dir))
     model.to(args.device)
     num_params = count_parameters(model)
@@ -103,7 +104,7 @@ def valid(args, model, writer, test_loader, global_step):
         batch = tuple(t.to(args.device) for t in batch)
         x, y = batch
         with torch.no_grad():
-            logits = model(x)[0]
+            logits = model(x)#[0]
 
             eval_loss = loss_fct(logits, y)
             eval_losses.update(eval_loss.item())
@@ -190,7 +191,12 @@ def train(args, model):
         for step, batch in enumerate(epoch_iterator):
             batch = tuple(t.to(args.device) for t in batch)
             x, y = batch
-            loss = model(x, y)
+
+            import torch.nn.functional as F
+            output = model(x)
+            loss = F.cross_entropy(output, y)
+            ##
+            # loss = model(x, y)
 
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps
@@ -198,6 +204,8 @@ def train(args, model):
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
                     scaled_loss.backward()
             else:
+                ##
+                # loss.requires_grad_(True)
                 loss.backward()
 
             if (step + 1) % args.gradient_accumulation_steps == 0:
@@ -250,9 +258,9 @@ def main():
     parser.add_argument("--output_dir", default="output", type=str,
                         help="The output directory where checkpoints will be written.")
 
-    parser.add_argument("--train_batch_size", default=512, type=int,
+    parser.add_argument("--train_batch_size", default=5, type=int,
                         help="Total batch size for training.")
-    parser.add_argument("--eval_batch_size", default=512, type=int,
+    parser.add_argument("--eval_batch_size", default=5, type=int,
                         help="Total batch size for eval.")
     parser.add_argument("--eval_every", default=100, type=int,
                         help="Run prediction on validation set every so many steps."
@@ -287,7 +295,10 @@ def main():
                              "0 (default value): dynamic loss scaling.\n"
                              "Positive power of 2: static loss scaling value.\n")
     args = parser.parse_args()
+    print("--------------------------------------------------")
 
+    print(args)
+    print("--------------------------------------------------")
     # Setup CUDA, GPU & distributed training
     if args.local_rank == -1:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -300,6 +311,7 @@ def main():
         args.n_gpu = 1
     args.device = device
     args.img_size = 224
+    # args.img_size = 224
     if args.fp16:
         from apex import amp
     if args.local_rank != -1:
